@@ -29,28 +29,3 @@ yarn-error.log*
 # OS generated files
 .DS_Store
 Thumbs.db
-
-# Build files
-loan-calculator-next/build/
-
-# Dependency directories
-node_modules/
-
-# TypeScript cache
-*.tsbuildinfo
-
-# Optional npm cache directory
-.npm
-
-# Optional eslint cache
-.eslintcache
-
-# Yarn Integrity file
-.yarn-integrity
-
-# Next.js build output
-.next
-out
-
-# Misc
-*.pem
