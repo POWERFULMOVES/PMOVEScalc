@@ -526,7 +526,8 @@ const Home = () => {
       <div className="w-full max-w-4xl">
         <Card className="overflow-hidden shadow-xl">
           <CardHeader className="text-center bg-primary/5 py-6">
-            <CardTitle className="text-3xl font-bold text-primary">Loan Calculator</CardTitle>
+            <CardTitle className="text-3xl font-bold text-primary">POWERFULMOVES LOAN CALCULATOR</CardTitle>
+            <p className="text-xl">PMOVES Edition</p>
           </CardHeader>
           <CardContent className="space-y-6">
             <Accordion type="single" collapsible className="w-full">
