@@ -56,7 +56,7 @@ This project consists of a Next.js frontend and a Python FastAPI backend for a l
 
 4. Run the backend server:
    ```
-   uvicorn main:app --reload
+   uvicorn app:app --reload
    ```
 
    The backend API will be available at `http://localhost:8000`.
