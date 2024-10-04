@@ -2,11 +2,11 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import date
-from decimal import Decimal, getcontext, ROUND_HALF_UP
+from decimal import Decimal, getcontext, ROUND_HALF_DOWN, ROUND_HALF_UP
 from dateutil.relativedelta import relativedelta
 import io
 from fastapi.responses import StreamingResponse
-from typing import Optional
+from typing import Optional, List
 import xlsxwriter
 
 app = FastAPI()
@@ -23,9 +23,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+class RateAdjustment(BaseModel):
+    effective_date: date = Field(..., description="Date when the index rate adjustment takes effect")
+    index_rate: float = Field(..., ge=0, description="New index rate (percentage)")
+
 class LoanRequest(BaseModel):
     loan_amount: float = Field(ge=0, description="Total loan amount")
-    annual_interest_rate: float = Field(ge=0, description="Annual interest rate (APR)")
+    annual_interest_rate: Optional[float] = Field(default=None, ge=0, description="Annual interest rate (APR) for fixed loans")
     payment_amount: Optional[float] = Field(default=None, ge=0, description="Payment amount")
     payment_frequency: str = Field(..., description="Payment frequency (e.g., 'Monthly')")
     first_due_date: date = Field(..., description="First payment due date")
@@ -36,17 +40,22 @@ class LoanRequest(BaseModel):
     additional_principal: float = Field(default=0.0, ge=0, description="Additional principal payment per period")
     credit_insurance: bool = Field(default=False, description="Include credit insurance")
 
-from decimal import Decimal, getcontext, ROUND_HALF_DOWN, ROUND_HALF_UP
-from dateutil.relativedelta import relativedelta
-
-# Set decimal precision higher to ensure accurate calculations
-getcontext().prec = 28
+    # New fields for adjustable rate loans
+    initial_index_rate: Optional[float] = Field(default=None, ge=0, description="Initial index rate for adjustable rate loans")
+    margin: Optional[float] = Field(default=0.0, ge=0, description="Margin added to index rate")
+    rate_adjustments: Optional[List[RateAdjustment]] = Field(default=None, description="Schedule of index rate adjustments")
+    max_rate_change: Optional[float] = Field(default=None, ge=0, description="Maximum allowed change in interest rate at each adjustment")
+    max_interest_rate: Optional[float] = Field(default=None, ge=0, description="Maximum allowable interest rate over the life of the loan")
+    adjust_payment: Optional[bool] = Field(default=True, description="Adjust payment amount when interest rate changes")
+    fixed_rate_period: Optional[int] = Field(default=None, ge=0, description="Number of periods with fixed interest rate")
+    adjustment_frequency: Optional[int] = Field(default=None, ge=1, description="Number of periods between rate adjustments after fixed period")
 
 class LoanCalculator:
-    def __init__(self, principal, interest_rate, payment_amount, payment_frequency, first_due_date, 
-                 days_method, year_basis, loan_term, amort_term=None, additional_principal=0.0, credit_insurance=False):
+    def __init__(self, principal, annual_interest_rate, payment_amount, payment_frequency, first_due_date,
+                 days_method, year_basis, loan_term, amort_term=None, additional_principal=0.0, credit_insurance=False,
+                 initial_index_rate=None, margin=0.0, rate_adjustments=None, max_rate_change=None, max_interest_rate=None,
+                 adjust_payment=True, fixed_rate_period=None, adjustment_frequency=None):
         self.principal = Decimal(str(principal))
-        self.interest_rate = Decimal(str(interest_rate)) / Decimal('100')  # Convert to decimal fraction
         self.payment_amount = Decimal(str(payment_amount)) if payment_amount is not None else None
         self.payment_frequency = payment_frequency
         self.first_due_date = first_due_date
@@ -56,6 +65,32 @@ class LoanCalculator:
         self.amort_term = amort_term if amort_term is not None else loan_term
         self.additional_principal = Decimal(str(additional_principal))
         self.credit_insurance = credit_insurance
+        self.adjust_payment = adjust_payment
+        self.fixed_rate_period = fixed_rate_period if fixed_rate_period is not None else self.loan_term  # Default to fixed for the entire term
+        self.adjustment_frequency = adjustment_frequency if adjustment_frequency is not None else 12  # Default to annual adjustments
+
+        # Determine initial interest rate
+        if initial_index_rate is not None and margin is not None:
+            # Adjustable rate loan
+            self.initial_index_rate = Decimal(str(initial_index_rate)) / Decimal('100')  # Convert to decimal fraction
+            self.margin = Decimal(str(margin)) / Decimal('100')
+            self.current_index_rate = self.initial_index_rate
+            self.current_interest_rate = self.initial_index_rate + self.margin
+            self.is_adjustable_rate = True
+        elif annual_interest_rate is not None:
+            # Fixed rate loan
+            self.current_interest_rate = Decimal(str(annual_interest_rate)) / Decimal('100')
+            self.is_adjustable_rate = False
+        else:
+            raise ValueError("Either annual_interest_rate or initial_index_rate and margin must be provided.")
+
+        self.max_rate_change = Decimal(str(max_rate_change)) / Decimal('100') if max_rate_change else None
+        self.max_interest_rate = Decimal(str(max_interest_rate)) / Decimal('100') if max_interest_rate else None
+
+        # Rate adjustments
+        self.rate_adjustments = rate_adjustments if rate_adjustments else []
+        # Sort rate adjustments by effective date
+        self.rate_adjustments.sort(key=lambda x: x['effective_date'])
 
         # Calculate payment amount if not provided
         if self.payment_amount is None:
@@ -110,7 +145,7 @@ class LoanCalculator:
             insurance_premium = self.calculate_insurance_premium(balance)
             total_insurance += insurance_premium
             # Estimate principal reduction (approximate)
-            interest = balance * self.interest_rate / self.get_periods_per_year()
+            interest = balance * self.current_interest_rate / self.get_periods_per_year()
             principal_paid = payment_amount - insurance_premium - interest
             balance -= principal_paid
             if balance <= Decimal('0.00'):
@@ -121,7 +156,7 @@ class LoanCalculator:
 
     def calculate_loan_payment_30_360(self):
         periods_per_year = self.get_periods_per_year()
-        rate_per_period = self.interest_rate / Decimal('12')  # Monthly rate
+        rate_per_period = self.current_interest_rate / Decimal('12')  # Monthly rate
         n = self.amort_term
 
         # Calculate payment amount using the standard formula
@@ -135,13 +170,28 @@ class LoanCalculator:
     def calculate_loan_payment_actual(self):
         periods_per_year = self.get_periods_per_year()
         n = self.amort_term
-        rate_per_period = self.interest_rate / periods_per_year
+        rate_per_period = self.current_interest_rate / periods_per_year
 
         # Calculate payment amount using the standard formula
         payment = (self.principal * rate_per_period * (1 + rate_per_period) ** n) / ((1 + rate_per_period) ** n - 1)
 
         # Adjust for additional principal
         payment += self.additional_principal
+
+        return payment
+
+    def recalculate_payment_amount(self, balance, interest_rate, periods_per_year, remaining_payments):
+        rate_per_period = interest_rate / periods_per_year
+        n = remaining_payments
+
+        # Calculate new payment amount using the standard formula
+        payment = (balance * rate_per_period * (1 + rate_per_period) ** n) / ((1 + rate_per_period) ** n - 1)
+
+        # Adjust for additional principal
+        payment += self.additional_principal
+
+        # Apply rounding consistent with the rest of the calculator
+        payment = payment.quantize(Decimal('0.01'), rounding=ROUND_HALF_DOWN)
 
         return payment
 
@@ -155,17 +205,82 @@ class LoanCalculator:
         total_additional_principal = Decimal('0')
 
         periods_per_year = self.get_periods_per_year()
+        current_interest_rate = self.current_interest_rate
+        rate_adjustment_index = 0
 
         while balance > 0:
+            # Determine the current interest rate
+            if not self.is_adjustable_rate:
+                # Fixed rate loan
+                current_interest_rate = self.current_interest_rate
+            else:
+                # Adjustable rate loan
+                if payment_number <= self.fixed_rate_period:
+                    # During fixed rate period
+                    current_interest_rate = self.current_interest_rate
+                else:
+                    # After fixed rate period
+                    # Check if it's time to adjust the interest rate
+                    adjustment_period = payment_number - self.fixed_rate_period
+                    if (adjustment_period - 1) % self.adjustment_frequency == 0:
+                        # Adjust the interest rate based on rate adjustments
+                        if self.rate_adjustments and rate_adjustment_index < len(self.rate_adjustments):
+                            # Get the new index rate
+                            rate_adjustment = self.rate_adjustments[rate_adjustment_index]
+                            if current_date >= rate_adjustment['effective_date']:
+                                new_index_rate = Decimal(str(rate_adjustment['index_rate'])) / Decimal('100')
+                                rate_adjustment_index += 1
+                            else:
+                                # Use current index rate
+                                new_index_rate = self.current_index_rate
+                        else:
+                            # Use current index rate
+                            new_index_rate = self.current_index_rate
+
+                        # Calculate proposed new interest rate
+                        proposed_interest_rate = new_index_rate + self.margin
+
+                        # Calculate rate change
+                        rate_change = proposed_interest_rate - current_interest_rate
+
+                        # Apply maximum rate change (periodic cap)
+                        if self.max_rate_change is not None:
+                            if rate_change > self.max_rate_change:
+                                rate_change = self.max_rate_change
+                            elif rate_change < -self.max_rate_change:
+                                rate_change = -self.max_rate_change
+
+                        # Calculate new interest rate with cap applied
+                        new_interest_rate = current_interest_rate + rate_change
+
+                        # Apply lifetime cap
+                        if self.max_interest_rate is not None:
+                            new_interest_rate = min(new_interest_rate, self.max_interest_rate)
+
+                        # Update current index rate and interest rate
+                        self.current_index_rate = new_index_rate
+                        current_interest_rate = new_interest_rate
+
+                        if self.adjust_payment:
+                            # Recalculate payment amount to pay off over remaining term
+                            remaining_payments = self.loan_term - payment_number + 1
+                            self.payment_amount = self.recalculate_payment_amount(balance, current_interest_rate, periods_per_year, remaining_payments)
+                    else:
+                        # Keep current_interest_rate and payment_amount
+                        pass  # No changes in this period
+
+            # Calculate interest for the period
             next_date = self.get_next_payment_date(current_date)
             days_in_period = self.calculate_days_in_period(current_date, next_date)
 
-            # Calculate interest based on the selected method
-            if self.days_method == '30 Day Month' and self.year_basis == 360:
-                interest_paid = balance * (self.interest_rate / Decimal('12'))
-            else:
-                daily_rate = self.interest_rate / Decimal(str(self.year_basis))
+            # Calculate interest based on the current interest rate
+            if self.days_method == 'Actual':
+                daily_rate = current_interest_rate / Decimal(str(self.year_basis))
                 interest_paid = balance * daily_rate * Decimal(str(days_in_period))
+            elif self.days_method == '30 Day Month' and self.year_basis == 360:
+                interest_paid = balance * (current_interest_rate / Decimal('12'))
+            else:
+                raise ValueError("Unsupported days method")
 
             # Calculate insurance premium
             if self.credit_insurance:
@@ -176,11 +291,9 @@ class LoanCalculator:
             # Calculate principal paid
             principal_paid = self.payment_amount - interest_paid - insurance_paid
 
-            if principal_paid + self.additional_principal > balance:
-                # Adjust the final payment to avoid negative balance
-                principal_paid = balance - self.additional_principal
-
-            principal_paid = max(principal_paid, Decimal('0.00'))
+            # Prevent negative amortization
+            if principal_paid + self.additional_principal < 0:
+                raise Exception(f"Payment amount is insufficient to cover interest and fees on payment number {payment_number}. Negative amortization is not allowed.")
 
             # Apply additional principal
             actual_additional_principal = min(self.additional_principal, balance - principal_paid)
@@ -202,7 +315,8 @@ class LoanCalculator:
                 'principal_paid': float(round(principal_paid, 2)),
                 'additional_principal': float(round(actual_additional_principal, 2)),
                 'insurance_paid': float(round(insurance_paid, 2)),
-                'ending_balance': float(round(ending_balance, 2))
+                'ending_balance': float(round(ending_balance, 2)),
+                'interest_rate': float(current_interest_rate * Decimal('100')),  # For reporting purposes
             })
 
             # Update balance and payment number
@@ -294,17 +408,25 @@ class LoanCalculator:
             'payment_amount_no_insurance': float(round(payment_amount_no_insurance, 2)),
         }
 
-
 @app.post("/calculate-loan-amortization")
 def calculate_loan_amortization(request: LoanRequest):
     try:
         # Set amort_term equal to loan_term if not provided
         amort_term = request.amort_term if request.amort_term is not None else request.loan_term
 
+        # Convert rate_adjustments to list of dictionaries with effective_date and index_rate
+        rate_adjustments = []
+        if request.rate_adjustments:
+            for adj in request.rate_adjustments:
+                rate_adjustments.append({
+                    'effective_date': adj.effective_date,
+                    'index_rate': adj.index_rate
+                })
+
         # Create LoanCalculator instance
         calculator = LoanCalculator(
             principal=request.loan_amount,
-            interest_rate=request.annual_interest_rate,  # Interest rate as percentage
+            annual_interest_rate=request.annual_interest_rate,
             payment_amount=request.payment_amount,
             payment_frequency=request.payment_frequency,
             first_due_date=request.first_due_date,
@@ -313,7 +435,15 @@ def calculate_loan_amortization(request: LoanRequest):
             loan_term=request.loan_term,
             amort_term=amort_term,
             additional_principal=request.additional_principal,
-            credit_insurance=request.credit_insurance
+            credit_insurance=request.credit_insurance,
+            initial_index_rate=request.initial_index_rate,
+            margin=request.margin,
+            rate_adjustments=rate_adjustments,
+            max_rate_change=request.max_rate_change,
+            max_interest_rate=request.max_interest_rate,
+            adjust_payment=request.adjust_payment,
+            fixed_rate_period=request.fixed_rate_period,
+            adjustment_frequency=request.adjustment_frequency
         )
 
         amortization_data = calculator.get_amortization_schedule()
@@ -323,7 +453,7 @@ def calculate_loan_amortization(request: LoanRequest):
             # Recalculate without additional principal
             calculator_no_additional = LoanCalculator(
                 principal=request.loan_amount,
-                interest_rate=request.annual_interest_rate,
+                annual_interest_rate=request.annual_interest_rate,
                 payment_amount=request.payment_amount,
                 payment_frequency=request.payment_frequency,
                 first_due_date=request.first_due_date,
@@ -332,7 +462,15 @@ def calculate_loan_amortization(request: LoanRequest):
                 loan_term=request.loan_term,
                 amort_term=amort_term,
                 additional_principal=0.0,
-                credit_insurance=request.credit_insurance
+                credit_insurance=request.credit_insurance,
+                initial_index_rate=request.initial_index_rate,
+                margin=request.margin,
+                rate_adjustments=rate_adjustments,
+                max_rate_change=request.max_rate_change,
+                max_interest_rate=request.max_interest_rate,
+                adjust_payment=request.adjust_payment,
+                fixed_rate_period=request.fixed_rate_period,
+                adjustment_frequency=request.adjustment_frequency
             )
             amortization_data_no_additional = calculator_no_additional.get_amortization_schedule()
             total_interest_no_additional = amortization_data_no_additional['total_interest']
@@ -350,7 +488,8 @@ def calculate_loan_amortization(request: LoanRequest):
                 "interest_paid": payment['interest_paid'],
                 "additional_principal": payment['additional_principal'],
                 "insurance_paid": payment['insurance_paid'],
-                "ending_balance": payment['ending_balance']
+                "ending_balance": payment['ending_balance'],
+                "interest_rate": payment.get('interest_rate', None),
             }
             for payment in amortization_data['schedule']
         ]
@@ -382,7 +521,6 @@ def calculate_loan_amortization(request: LoanRequest):
 def calculate_loan(request: LoanRequest):
     return calculate_loan_amortization(request)
 
-
 @app.post("/export-excel")
 async def export_excel(data: dict):
     output = io.BytesIO()
@@ -390,7 +528,7 @@ async def export_excel(data: dict):
     worksheet = workbook.add_worksheet()
 
     # Add headers
-    headers = ["Payment Number", "Payment Date", "Payment Amount", "Principal Paid", "Interest Paid", "Additional Principal", "Insurance Paid", "Ending Balance"]
+    headers = ["Payment Number", "Payment Date", "Payment Amount", "Principal Paid", "Interest Paid", "Additional Principal", "Insurance Paid", "Ending Balance", "Interest Rate"]
     for col, header in enumerate(headers):
         worksheet.write(0, col, header)
 
@@ -404,6 +542,7 @@ async def export_excel(data: dict):
         worksheet.write(row, 5, payment['additional_principal'])
         worksheet.write(row, 6, payment['insurance_paid'])
         worksheet.write(row, 7, payment['ending_balance'])
+        worksheet.write(row, 8, payment['interest_rate'])
 
     # Add summary
     summary_row = len(data['amortization_schedule']) + 2

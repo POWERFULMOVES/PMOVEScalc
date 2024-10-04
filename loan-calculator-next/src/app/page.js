@@ -9,7 +9,6 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Progress } from "@/components/ui/progress";
 import { Slider } from "@/components/ui/slider";
@@ -20,6 +19,8 @@ import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 import html2canvas from 'html2canvas';
 import ErrorBoundary from '@/components/ErrorBoundary';
+// Optional: Uncomment the next line if you decide to use seedrandom for reproducibility
+// import seedrandom from 'seedrandom';
 
 const formatCurrency = (amount) => {
   if (typeof amount !== 'number' || isNaN(amount)) {
@@ -52,11 +53,36 @@ const Home = () => {
   const [customPaymentAmount, setCustomPaymentAmount] = useState(false);
   const [useDifferentAmortTerm, setUseDifferentAmortTerm] = useState(false);
 
+  // State variables for adjustable-rate loans
+  const [isAdjustableRate, setIsAdjustableRate] = useState(false);
+  const [initialIndexRate, setInitialIndexRate] = useState('');
+  const [margin, setMargin] = useState('');
+  const [maxRateChange, setMaxRateChange] = useState('');
+  const [maxInterestRate, setMaxInterestRate] = useState('');
+  const [adjustPayment, setAdjustPayment] = useState(true);
+  const [fixedRatePeriod, setFixedRatePeriod] = useState('');
+  const [adjustmentFrequency, setAdjustmentFrequency] = useState('');
+
+  // State variables for rate adjustment patterns
+  const [useRateAdjustmentPattern, setUseRateAdjustmentPattern] = useState(false);
+  const [adjustmentType, setAdjustmentType] = useState('Percentage'); // 'Percentage' or 'Fixed Amount'
+  const [adjustmentValue, setAdjustmentValue] = useState('');
+  const [adjustmentPatternFrequency, setAdjustmentPatternFrequency] = useState('1'); // Every X periods
+  const [adjustmentDuration, setAdjustmentDuration] = useState(''); // Number of adjustments
+  const [rateAdjustments, setRateAdjustments] = useState([]);
+
+  // State variables for random rate adjustments
+  const [useRandomAdjustments, setUseRandomAdjustments] = useState(false);
+  const [numberOfRandomAdjustments, setNumberOfRandomAdjustments] = useState('');
+  const [maxRandomAdjustmentValue, setMaxRandomAdjustmentValue] = useState('');
+  const [randomAdjustmentFrequency, setRandomAdjustmentFrequency] = useState('1');
+  const [randomSeed, setRandomSeed] = useState('');
+
   const printRef = useRef(null);
 
   // Validation function for numeric inputs
   const isValidNumber = (value) => {
-    return !isNaN(parseFloat(value)) && isFinite(value);
+    return value !== '' && !isNaN(parseFloat(value)) && isFinite(value);
   };
 
   useEffect(() => {
@@ -67,7 +93,7 @@ const Home = () => {
 
   // Debounce mechanism for auto-calculation
   useEffect(() => {
-    if (customPaymentAmount) return; // Do not auto-calculate if custom payment amount is used
+    if (!customPaymentAmount) return; // Do not auto-calculate if custom payment amount is used
 
     const timer = setTimeout(() => {
       handleCalculate();
@@ -87,9 +113,29 @@ const Home = () => {
     creditInsurance,
     customPaymentAmount,
     useDifferentAmortTerm,
+    isAdjustableRate,
+    initialIndexRate,
+    margin,
+    maxRateChange,
+    maxInterestRate,
+    adjustPayment,
+    fixedRatePeriod,
+    adjustmentFrequency,
+    useRateAdjustmentPattern,
+    adjustmentType,
+    adjustmentValue,
+    adjustmentPatternFrequency,
+    adjustmentDuration,
+    rateAdjustments,
+    useRandomAdjustments,
+    numberOfRandomAdjustments,
+    maxRandomAdjustmentValue,
+    randomAdjustmentFrequency,
+    randomSeed,
   ]);
 
   const generatePDF = async () => {
+    // Existing code for generating PDF
     if (!result) {
       alert('Please calculate the loan first.');
       return;
@@ -139,6 +185,9 @@ const Home = () => {
       tableHeaders.push('Insurance');
     }
     tableHeaders.push('Additional Principal', 'Ending Balance');
+    if (isAdjustableRate) {
+      tableHeaders.push('Interest Rate (%)');
+    }
 
     const tableData = result.amortization_schedule.map(payment => {
       const row = [
@@ -152,6 +201,9 @@ const Home = () => {
         row.push(formatCurrency(payment.insurance_paid));
       }
       row.push(formatCurrency(payment.additional_principal), formatCurrency(payment.ending_balance));
+      if (isAdjustableRate) {
+        row.push(payment.interest_rate.toFixed(2));
+      }
       return row;
     });
 
@@ -183,7 +235,8 @@ const Home = () => {
     // Validate inputs
     if (
       !isValidNumber(loanAmount) ||
-      !isValidNumber(annualInterestRate) ||
+      (!isAdjustableRate && !isValidNumber(annualInterestRate)) ||
+      (isAdjustableRate && (!isValidNumber(initialIndexRate) || !isValidNumber(margin))) ||
       !isValidNumber(loanTerm) ||
       !isValidNumber(amortTerm) ||
       !isValidNumber(additionalPrincipal)
@@ -198,9 +251,24 @@ const Home = () => {
       return;
     }
 
+    // Generate rate adjustments based on pattern if enabled
+    let rateAdjustmentsData = null;
+    if (isAdjustableRate) {
+      if (useRandomAdjustments) {
+        rateAdjustmentsData = generateRandomRateAdjustments();
+      } else if (useRateAdjustmentPattern) {
+        rateAdjustmentsData = generateRateAdjustmentsPattern();
+      } else if (rateAdjustments.length > 0) {
+        rateAdjustmentsData = rateAdjustments.map((adjustment) => ({
+          effective_date: adjustment.effectiveDate,
+          index_rate: parseFloat(adjustment.indexRate),
+        }));
+      }
+    }
+
     const data = {
       loan_amount: parseFloat(loanAmount),
-      annual_interest_rate: parseFloat(annualInterestRate),
+      annual_interest_rate: isAdjustableRate ? null : parseFloat(annualInterestRate),
       payment_amount: customPaymentAmount ? (paymentAmount === '' ? null : parseFloat(paymentAmount)) : null,
       payment_frequency: paymentFrequency,
       first_due_date: firstDueDate,
@@ -210,6 +278,15 @@ const Home = () => {
       amort_term: parseInt(amortTerm),
       additional_principal: parseFloat(additionalPrincipal),
       credit_insurance: creditInsurance,
+      // Adjustable-rate loan fields
+      initial_index_rate: isAdjustableRate ? parseFloat(initialIndexRate) : null,
+      margin: isAdjustableRate ? parseFloat(margin) : 0.0,
+      rate_adjustments: rateAdjustmentsData,
+      max_rate_change: isAdjustableRate && maxRateChange !== '' ? parseFloat(maxRateChange) : null,
+      max_interest_rate: isAdjustableRate && maxInterestRate !== '' ? parseFloat(maxInterestRate) : null,
+      adjust_payment: isAdjustableRate ? adjustPayment : true,
+      fixed_rate_period: isAdjustableRate && fixedRatePeriod !== '' ? parseInt(fixedRatePeriod) : null,
+      adjustment_frequency: isAdjustableRate && adjustmentFrequency !== '' ? parseInt(adjustmentFrequency) : null,
     };
 
     try {
@@ -228,32 +305,132 @@ const Home = () => {
       return response.data;
     } catch (error) {
       console.error('API Error:', error);
+      let errorMessage = 'Failed to calculate loan. Please check the console for more details.';
       if (error.response && error.response.data && error.response.data.detail) {
-        setError(error.response.data.detail);
-      } else {
-        setError('Failed to calculate loan. Please check the console for more details.');
+        if (Array.isArray(error.response.data.detail)) {
+          errorMessage = error.response.data.detail.map((err) => err.msg).join('; ');
+        } else if (typeof error.response.data.detail === 'string') {
+          errorMessage = error.response.data.detail;
+        } else if (typeof error.response.data.detail === 'object') {
+          errorMessage = error.response.data.detail.msg || JSON.stringify(error.response.data.detail);
+        }
       }
+      setError(errorMessage);
       return null;
     }
   };
 
+  const generateRateAdjustmentsPattern = () => {
+    const adjustments = [];
+    let currentIndexRate = parseFloat(initialIndexRate);
+    const totalAdjustments = parseInt(adjustmentDuration);
+    const frequency = parseInt(adjustmentPatternFrequency);
+    const periodIncrements = frequency;
+
+    let effectiveDate = new Date(firstDueDate);
+
+    for (let i = 1; i <= totalAdjustments; i++) {
+      // Increment effective date by the frequency
+      effectiveDate.setMonth(effectiveDate.getMonth() + periodIncrements);
+
+      // Calculate new index rate
+      if (adjustmentType === 'Fixed Amount') {
+        currentIndexRate += parseFloat(adjustmentValue);
+      } else if (adjustmentType === 'Percentage') {
+        currentIndexRate += (currentIndexRate * parseFloat(adjustmentValue)) / 100;
+      }
+
+      adjustments.push({
+        effective_date: effectiveDate.toISOString().split('T')[0],
+        index_rate: currentIndexRate.toFixed(6), // Use high precision
+      });
+    }
+
+    return adjustments;
+  };
+
+  const generateRandomRateAdjustments = () => {
+    const adjustments = [];
+    let currentIndexRate = parseFloat(initialIndexRate);
+    const totalAdjustments = parseInt(numberOfRandomAdjustments);
+    const frequency = parseInt(randomAdjustmentFrequency);
+    const maxAdjustment = parseFloat(maxRandomAdjustmentValue);
+    const loanTermPayments = parseInt(loanTerm);
+    const adjustmentIntervals = [];
+
+    // Optional: Set random seed for reproducibility
+    if (randomSeed !== '') {
+      // Simple seed implementation using Math.seedrandom (you need to include the seedrandom library)
+      // Uncomment the following lines if you have installed seedrandom
+      // seedrandom(randomSeed, { global: true });
+    }
+
+    // Generate unique random payment numbers for adjustments
+    while (adjustmentIntervals.length < totalAdjustments) {
+      const adjustmentPoint = Math.floor(Math.random() * loanTermPayments) + 1;
+      if (!adjustmentIntervals.includes(adjustmentPoint)) {
+        adjustmentIntervals.push(adjustmentPoint);
+      }
+    }
+
+    adjustmentIntervals.sort((a, b) => a - b);
+
+    let effectiveDate = new Date(firstDueDate);
+
+    for (let i = 1; i <= loanTermPayments; i++) {
+      // Increment effective date by payment frequency
+      if (i > 1) {
+        effectiveDate.setMonth(effectiveDate.getMonth() + frequency);
+      }
+
+      if (adjustmentIntervals.includes(i)) {
+        // Randomly decide increase or decrease
+        const adjustmentDirection = Math.random() < 0.5 ? -1 : 1;
+        // Random adjustment value within maxAdjustment
+        const adjustmentValue = Math.random() * maxAdjustment * adjustmentDirection;
+
+        // Apply the adjustment
+        currentIndexRate += adjustmentValue;
+        // Ensure the interest rate doesn't go below zero
+        currentIndexRate = Math.max(currentIndexRate, 0);
+
+        adjustments.push({
+          effective_date: effectiveDate.toISOString().split('T')[0],
+          index_rate: currentIndexRate.toFixed(6),
+        });
+      }
+    }
+
+    return adjustments;
+  };
+
   const handleInputChange = (setter) => (e) => {
     setter(e.target.value);
-    // No need to call handleCalculate() here; the debounce will handle it
   };
 
   const handleCheckboxChange = (setter) => (value) => {
     setter(value);
   };
 
-  const renderInputField = (label, value, setter, tooltip, type = 'text', options = null, min = null, max = null, step = null, disabled = false) => {
+  const renderInputField = (
+    label,
+    value,
+    setter,
+    tooltip,
+    type = 'text',
+    options = null,
+    min = null,
+    max = null,
+    step = null,
+    disabled = false
+  ) => {
     const handleChange = async (e) => {
       let newValue = e.target.value;
 
       // Special handling for Additional Principal
-      if (label === 'Additional Principal') {
-        // Remove any non-digit characters
-        newValue = newValue.replace(/[^\d.]/g, '');
+      if (label === 'Additional Principal' || label.includes('Adjustment Value')) {
+        // Remove any non-digit characters except minus sign and decimal point
+        newValue = newValue.replace(/[^\d.-]/g, '');
         // Ensure only one decimal point
         const parts = newValue.split('.');
         if (parts.length > 2) {
@@ -266,16 +443,10 @@ const Home = () => {
       }
 
       setter(newValue);
-
-      // For days method and year basis, we need to recalculate and update the payment amount
-      if (label === 'Days Method' || label === 'Year Basis') {
-        // No need to call handleCalculate() here; the debounce will handle it
-      }
     };
 
     const handleSliderChange = (newValue) => {
       setter(newValue[0].toString());
-      // No need to call handleCalculate() here; the debounce will handle it
     };
 
     const formatSliderValue = (value) => {
@@ -290,7 +461,9 @@ const Home = () => {
 
     return (
       <div className="w-full">
-        <Label htmlFor={label} className="text-center block mb-2">{label}</Label>
+        <Label htmlFor={label} className="text-center block mb-2">
+          {label}
+        </Label>
         <div className="flex items-center space-x-4">
           {options ? (
             <select
@@ -302,7 +475,9 @@ const Home = () => {
               className="input-field text-center w-full p-2 rounded-md"
             >
               {options.map((option) => (
-                <option key={option} value={option}>{option}</option>
+                <option key={option} value={option}>
+                  {option}
+                </option>
               ))}
             </select>
           ) : (
@@ -373,10 +548,18 @@ const Home = () => {
               </div>
             </>
           )}
-          <div>
-            <p className="font-medium">Interest Rate (APR)</p>
-            <p>{annualInterestRate}%</p>
-          </div>
+          {!isAdjustableRate && (
+            <div>
+              <p className="font-medium">Interest Rate (APR)</p>
+              <p>{annualInterestRate}%</p>
+            </div>
+          )}
+          {isAdjustableRate && (
+            <div>
+              <p className="font-medium">Initial Interest Rate</p>
+              <p>{(parseFloat(initialIndexRate) + parseFloat(margin)).toFixed(2)}%</p>
+            </div>
+          )}
           <div>
             <p className="font-medium">Scheduled Term</p>
             <p>{loanTerm} payments</p>
@@ -418,6 +601,7 @@ const Home = () => {
               {creditInsurance && <TableHead>Insurance Paid</TableHead>}
               <TableHead>Additional Principal</TableHead>
               <TableHead>Ending Balance</TableHead>
+              {isAdjustableRate && <TableHead>Interest Rate (%)</TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -431,6 +615,7 @@ const Home = () => {
                 {creditInsurance && <TableCell>{formatCurrency(payment.insurance_paid)}</TableCell>}
                 <TableCell>{formatCurrency(payment.additional_principal)}</TableCell>
                 <TableCell>{formatCurrency(payment.ending_balance)}</TableCell>
+                {isAdjustableRate && <TableHead>{payment.interest_rate.toFixed(2)}%</TableHead>}
               </TableRow>
             ))}
           </TableBody>
@@ -516,6 +701,229 @@ const Home = () => {
     );
   };
 
+  const renderAdjustableRateFields = () => (
+    <div className="space-y-6">
+      <div className="flex items-center space-x-2">
+        <Checkbox
+          id="isAdjustableRate"
+          checked={isAdjustableRate}
+          onCheckedChange={(checked) => {
+            setIsAdjustableRate(checked);
+            // Reset fields when toggling
+            if (!checked) {
+              setInitialIndexRate('');
+              setMargin('');
+              setMaxRateChange('');
+              setMaxInterestRate('');
+              setAdjustPayment(true);
+              setFixedRatePeriod('');
+              setAdjustmentFrequency('');
+              setRateAdjustments([]);
+              setUseRateAdjustmentPattern(false);
+              setUseRandomAdjustments(false);
+            }
+          }}
+        />
+        <Label htmlFor="isAdjustableRate">Adjustable Rate Loan</Label>
+      </div>
+      {isAdjustableRate && (
+        <>
+          {renderInputField('Initial Index Rate (%)', initialIndexRate, setInitialIndexRate, 'Enter the initial index rate', 'number', null, 0, 50, 0.1)}
+          {renderInputField('Margin (%)', margin, setMargin, 'Enter the margin added to the index rate', 'number', null, 0, 10, 0.1)}
+          {renderInputField('Max Rate Change (%)', maxRateChange, setMaxRateChange, 'Enter the maximum rate change per adjustment period', 'number', null, 0, 10, 0.1)}
+          {renderInputField('Max Interest Rate (%)', maxInterestRate, setMaxInterestRate, 'Enter the maximum interest rate over the life of the loan', 'number', null, 0, 50, 0.1)}
+          <div className="flex items-center space-x-2">
+            <Checkbox
+              id="adjustPayment"
+              checked={adjustPayment}
+              onCheckedChange={handleCheckboxChange(setAdjustPayment)}
+            />
+            <Label htmlFor="adjustPayment">Adjust Payment Amount When Interest Rate Changes</Label>
+          </div>
+          {renderInputField('Fixed Rate Period (Payments)', fixedRatePeriod, setFixedRatePeriod, 'Enter the number of payments with a fixed interest rate', 'number', null, 0, 480, 1)}
+          {renderInputField('Adjustment Frequency (Payments)', adjustmentFrequency, setAdjustmentFrequency, 'Enter the number of payments between interest rate adjustments', 'number', null, 1, 480, 1)}
+
+          {/* Rate Adjustment Pattern Section */}
+          <div className="space-y-4">
+            {/* Random Adjustments Option */}
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="useRandomAdjustments"
+                checked={useRandomAdjustments}
+                onCheckedChange={(checked) => {
+                  setUseRandomAdjustments(checked);
+                  if (checked) {
+                    setUseRateAdjustmentPattern(false);
+                    setRateAdjustments([]);
+                  }
+                }}
+              />
+              <Label htmlFor="useRandomAdjustments">Use Random Rate Adjustments</Label>
+            </div>
+
+            {useRandomAdjustments && (
+              <>
+                {renderInputField(
+                  'Number of Adjustments',
+                  numberOfRandomAdjustments,
+                  setNumberOfRandomAdjustments,
+                  'Enter the total number of rate adjustments to occur randomly over the loan term',
+                  'number',
+                  null,
+                  1,
+                  parseInt(loanTerm),
+                  1
+                )}
+                {renderInputField(
+                  'Max Adjustment Value (%)',
+                  maxRandomAdjustmentValue,
+                  setMaxRandomAdjustmentValue,
+                  'Enter the maximum percentage change per adjustment (e.g., 0.5 for up to ±0.5%)',
+                  'number',
+                  null,
+                  0.01,
+                  100,
+                  0.01
+                )}
+                {renderInputField(
+                  'Adjustment Frequency (Payments)',
+                  randomAdjustmentFrequency,
+                  setRandomAdjustmentFrequency,
+                  'Enter the minimum number of payments between possible adjustments',
+                  'number',
+                  null,
+                  1,
+                  parseInt(loanTerm),
+                  1
+                )}
+                {renderInputField(
+                  'Random Seed (Optional)',
+                  randomSeed,
+                  setRandomSeed,
+                  'Enter a seed number to reproduce the same random adjustments (optional)',
+                  'text'
+                )}
+              </>
+            )}
+
+            {/* Existing Rate Adjustment Pattern Option */}
+            {!useRandomAdjustments && (
+              <>
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="useRateAdjustmentPattern"
+                    checked={useRateAdjustmentPattern}
+                    onCheckedChange={(checked) => {
+                      setUseRateAdjustmentPattern(checked);
+                      if (checked) {
+                        setRateAdjustments([]);
+                      }
+                    }}
+                  />
+                  <Label htmlFor="useRateAdjustmentPattern">Use Rate Adjustment Pattern</Label>
+                </div>
+
+                {useRateAdjustmentPattern && (
+                  <>
+                    {renderInputField(
+                      'Adjustment Type',
+                      adjustmentType,
+                      setAdjustmentType,
+                      'Select the type of adjustment',
+                      'text',
+                      ['Percentage', 'Fixed Amount']
+                    )}
+                    {renderInputField(
+                      'Adjustment Value',
+                      adjustmentValue,
+                      setAdjustmentValue,
+                      'Enter the value of adjustment (e.g., 0.1 for 0.1% or $0.1). Use negative values for rate decreases.',
+                      'number',
+                      null,
+                      null,
+                      null,
+                      0.01
+                    )}
+                    {renderInputField(
+                      'Adjustment Frequency (Payments)',
+                      adjustmentPatternFrequency,
+                      setAdjustmentPatternFrequency,
+                      'Enter how often the interest rate adjusts (e.g., every 1 payment)',
+                      'number',
+                      null,
+                      1,
+                      480,
+                      1
+                    )}
+                    {renderInputField(
+                      'Number of Adjustments',
+                      adjustmentDuration,
+                      setAdjustmentDuration,
+                      'Enter the total number of adjustments to apply',
+                      'number',
+                      null,
+                      1,
+                      480,
+                      1
+                    )}
+                  </>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* Manual Rate Adjustments */}
+          {!useRateAdjustmentPattern && !useRandomAdjustments && (
+            <div>
+              <Label>Rate Adjustments</Label>
+              <div className="space-y-4">
+                {rateAdjustments.map((adjustment, index) => (
+                  <div key={index} className="flex items-center space-x-2">
+                    <Input
+                      type="date"
+                      value={adjustment.effectiveDate}
+                      onChange={(e) => {
+                        const newAdjustments = [...rateAdjustments];
+                        newAdjustments[index].effectiveDate = e.target.value;
+                        setRateAdjustments(newAdjustments);
+                      }}
+                    />
+                    <Input
+                      type="number"
+                      value={adjustment.indexRate}
+                      onChange={(e) => {
+                        const newAdjustments = [...rateAdjustments];
+                        newAdjustments[index].indexRate = e.target.value;
+                        setRateAdjustments(newAdjustments);
+                      }}
+                      placeholder="Index Rate (%)"
+                    />
+                    <Button
+                      variant="destructive"
+                      onClick={() => {
+                        const newAdjustments = rateAdjustments.filter((_, i) => i !== index);
+                        setRateAdjustments(newAdjustments);
+                      }}
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                ))}
+                <Button
+                  onClick={() => {
+                    setRateAdjustments([...rateAdjustments, { effectiveDate: '', indexRate: '' }]);
+                  }}
+                >
+                  Add Rate Adjustment
+                </Button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -551,7 +959,8 @@ const Home = () => {
                       <Label htmlFor="customPaymentAmount">Custom Payment Amount</Label>
                     </div>
                     {renderInputField('Payment Amount (Optional)', paymentAmount, setPaymentAmount, 'Enter your desired payment amount or leave blank to calculate it', 'number', null, 0, null, 0.01, !customPaymentAmount)}
-                    {renderInputField('Interest Rate (%)', annualInterestRate, setAnnualInterestRate, 'Enter the annual interest rate', 'number', null, 0, 50, 0.1)}
+                    {renderInputField('Interest Rate (%)', annualInterestRate, setAnnualInterestRate, 'Enter the annual interest rate', 'number', null, 0, 50, 0.1, isAdjustableRate)}
+                    {renderAdjustableRateFields()}
                     {renderInputField('Loan Term (Payments)', loanTerm, setLoanTerm, 'Enter the loan term in number of payments', 'number', null, 1, 480, 1)}
                     <div className="flex items-center space-x-2">
                       <Checkbox
