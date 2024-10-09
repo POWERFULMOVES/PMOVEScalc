@@ -654,7 +654,7 @@ const Home = () => {
               <TableRow key={payment.payment_number}>
                 <TableCell>{payment.payment_number}</TableCell>
                 <TableCell>{payment.payment_date}</TableCell>
-                <TableCell>{formatCurrency(payment.payment_amount + payment.additional_principal)}</TableCell>
+                <TableCell>{formatCurrency(payment.payment_amount)}</TableCell>
                 <TableCell>{formatCurrency(payment.principal_paid)}</TableCell>
                 <TableCell>{formatCurrency(payment.interest_paid)}</TableCell>
                 {creditInsurance && <TableCell>{formatCurrency(payment.insurance_paid)}</TableCell>}

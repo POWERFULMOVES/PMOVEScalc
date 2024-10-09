@@ -133,7 +133,33 @@ To get a local copy up and running, follow these steps:
 
 ## Installation and Running
 
-Refer to the INSTRUCTIONS.md file for detailed steps on how to install and run the project, both using traditional methods and Docker.
+### Regular Installation
+
+Refer to the INSTRUCTIONS.md file for detailed steps on how to install and run the project using traditional methods.
+
+### Docker Installation
+
+To run the project using Docker:
+
+1. Ensure you have Docker and Docker Compose installed on your system.
+
+2. Navigate to the root directory of the project (where the `docker-compose.yml` file is located).
+
+3. Build and start the containers:
+   ```
+   docker-compose up --build
+   ```
+
+   This will build the Docker images for both the frontend and backend, and start the containers.
+
+4. Access the applications:
+   - Frontend: `http://localhost:3000`
+   - Backend API: `http://localhost:8000`
+
+To stop the containers, press `Ctrl+C` in the terminal where docker-compose is running, or run:
+   ```
+   docker-compose down
+   ```
 
 ## Future Enhancements
 
