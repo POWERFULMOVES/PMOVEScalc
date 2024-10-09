@@ -1,4 +1,4 @@
-# Loan Calculator Project
+# PMOVES Loan Calculator Project
 
 This project consists of a Next.js frontend and a Python FastAPI backend for a loan calculator application.
 

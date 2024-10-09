@@ -26,6 +26,17 @@ The project is divided into two main parts:
 - Option for additional principal payments
 - Credit insurance inclusion
 - Export amortization schedule to Excel
+- Adjustable-rate mortgage support
+- Real-time interest rate adjustments
+- User-friendly PDF export of loan details and amortization schedule
+
+## Advanced Features
+
+- **Adjustable-Rate Mortgages**: Support for loans with adjustable interest rates, including initial fixed-rate periods and periodic adjustments.
+- **Interest Rate Adjustments**: Ability to simulate interest rate changes over time, with options for random or patterned adjustments.
+- **Credit Insurance**: Option to include credit insurance in the loan calculations, with detailed breakdowns of insurance costs.
+- **Data Visualization**: Graphical representation of loan data, including payment breakdowns and interest over time.
+- **PDF and Excel Export**: Export loan details and amortization schedules to PDF and Excel formats for easy sharing and record-keeping.
 
 ## Technical Details
 
@@ -39,7 +50,7 @@ Key components and features:
 - State management for handling user inputs and API responses
 - API integration using Axios for communication with the backend
 - Responsive design for various screen sizes
-- Data visualization (if implemented) for displaying loan information graphically
+- Data visualization for displaying loan information graphically
 
 ### Backend (FastAPI)
 
@@ -71,7 +82,8 @@ Key features and endpoints:
 Frontend:
 - React and Next.js for UI and routing
 - Axios for API requests
-- (Any additional libraries for UI components or data visualization)
+- Recharts for data visualization
+- jsPDF and html2canvas for PDF generation
 
 Backend:
 - FastAPI for API framework

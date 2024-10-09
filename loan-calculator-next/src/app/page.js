@@ -12,6 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Progress } from "@/components/ui/progress";
 import { Slider } from "@/components/ui/slider";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { motion } from "framer-motion";
 import { BarChart, Bar, XAxis, YAxis, Tooltip as RechartsTooltip, Legend, ResponsiveContainer } from 'recharts';
 import { saveAs } from 'file-saver';
@@ -19,6 +20,7 @@ import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 import html2canvas from 'html2canvas';
 import ErrorBoundary from '@/components/ErrorBoundary';
+// import { InformationCircleIcon } from '@heroicons/react/solid';
 // Optional: Uncomment the next line if you decide to use seedrandom for reproducibility
 // import seedrandom from 'seedrandom';
 
@@ -78,6 +80,10 @@ const Home = () => {
   const [randomAdjustmentFrequency, setRandomAdjustmentFrequency] = useState('1');
   const [randomSeed, setRandomSeed] = useState('');
 
+  // Add State Variable
+  const [initialInterestRate, setInitialInterestRate] = useState('');
+  const [minimumInterestRate, setMinimumInterestRate] = useState('0');
+
   const printRef = useRef(null);
 
   // Validation function for numeric inputs
@@ -114,7 +120,7 @@ const Home = () => {
     customPaymentAmount,
     useDifferentAmortTerm,
     isAdjustableRate,
-    initialIndexRate,
+    initialInterestRate,
     margin,
     maxRateChange,
     maxInterestRate,
@@ -236,10 +242,7 @@ const Home = () => {
     if (
       !isValidNumber(loanAmount) ||
       (!isAdjustableRate && !isValidNumber(annualInterestRate)) ||
-      (isAdjustableRate && (!isValidNumber(initialIndexRate) || !isValidNumber(margin))) ||
-      !isValidNumber(loanTerm) ||
-      !isValidNumber(amortTerm) ||
-      !isValidNumber(additionalPrincipal)
+      (isAdjustableRate && !isValidNumber(initialInterestRate))
     ) {
       setError('Please enter valid numeric values for all required fields.');
       return;
@@ -263,12 +266,17 @@ const Home = () => {
           effective_date: adjustment.effectiveDate,
           index_rate: parseFloat(adjustment.indexRate),
         }));
+      } else {
+        // Provide an empty array if no rate adjustments are specified
+        rateAdjustmentsData = [];
       }
     }
 
     const data = {
       loan_amount: parseFloat(loanAmount),
       annual_interest_rate: isAdjustableRate ? null : parseFloat(annualInterestRate),
+      initial_interest_rate: isAdjustableRate ? parseFloat(initialInterestRate) : null,
+      margin: isAdjustableRate ? parseFloat(margin) : 0.0,
       payment_amount: customPaymentAmount ? (paymentAmount === '' ? null : parseFloat(paymentAmount)) : null,
       payment_frequency: paymentFrequency,
       first_due_date: firstDueDate,
@@ -279,14 +287,13 @@ const Home = () => {
       additional_principal: parseFloat(additionalPrincipal),
       credit_insurance: creditInsurance,
       // Adjustable-rate loan fields
-      initial_index_rate: isAdjustableRate ? parseFloat(initialIndexRate) : null,
-      margin: isAdjustableRate ? parseFloat(margin) : 0.0,
       rate_adjustments: rateAdjustmentsData,
       max_rate_change: isAdjustableRate && maxRateChange !== '' ? parseFloat(maxRateChange) : null,
       max_interest_rate: isAdjustableRate && maxInterestRate !== '' ? parseFloat(maxInterestRate) : null,
       adjust_payment: isAdjustableRate ? adjustPayment : true,
       fixed_rate_period: isAdjustableRate && fixedRatePeriod !== '' ? parseInt(fixedRatePeriod) : null,
       adjustment_frequency: isAdjustableRate && adjustmentFrequency !== '' ? parseInt(adjustmentFrequency) : null,
+      minimum_interest_rate: isAdjustableRate ? parseFloat(minimumInterestRate) : null,
     };
 
     try {
@@ -326,6 +333,7 @@ const Home = () => {
     const totalAdjustments = parseInt(adjustmentDuration);
     const frequency = parseInt(adjustmentPatternFrequency);
     const periodIncrements = frequency;
+    const minInterestRate = parseFloat(minimumInterestRate) || 0; // Use user-defined minimum
 
     let effectiveDate = new Date(firstDueDate);
 
@@ -338,6 +346,11 @@ const Home = () => {
         currentIndexRate += parseFloat(adjustmentValue);
       } else if (adjustmentType === 'Percentage') {
         currentIndexRate += (currentIndexRate * parseFloat(adjustmentValue)) / 100;
+      }
+
+      // Ensure index rate is not below the minimum interest rate
+      if (currentIndexRate < minInterestRate) {
+        currentIndexRate = minInterestRate;
       }
 
       adjustments.push({
@@ -357,6 +370,7 @@ const Home = () => {
     const maxAdjustment = parseFloat(maxRandomAdjustmentValue);
     const loanTermPayments = parseInt(loanTerm);
     const adjustmentIntervals = [];
+    const minimumInterestRate = 0; // Set your minimum interest rate here
 
     // Optional: Set random seed for reproducibility
     if (randomSeed !== '') {
@@ -391,8 +405,8 @@ const Home = () => {
 
         // Apply the adjustment
         currentIndexRate += adjustmentValue;
-        // Ensure the interest rate doesn't go below zero
-        currentIndexRate = Math.max(currentIndexRate, 0);
+        // Ensure the interest rate doesn't go below the minimum
+        currentIndexRate = Math.max(currentIndexRate, minimumInterestRate);
 
         adjustments.push({
           effective_date: effectiveDate.toISOString().split('T')[0],
@@ -427,8 +441,8 @@ const Home = () => {
     const handleChange = async (e) => {
       let newValue = e.target.value;
 
-      // Special handling for Additional Principal
-      if (label === 'Additional Principal' || label.includes('Adjustment Value')) {
+      // Special handling for numeric fields
+      if (['Additional Principal', 'Adjustment Value', 'Max Adjustment Value (%)'].includes(label)) {
         // Remove any non-digit characters except minus sign and decimal point
         newValue = newValue.replace(/[^\d.-]/g, '');
         // Ensure only one decimal point
@@ -461,9 +475,37 @@ const Home = () => {
 
     return (
       <div className="w-full">
-        <Label htmlFor={label} className="text-center block mb-2">
-          {label}
-        </Label>
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className="flex items-center space-x-2">
+                <Label htmlFor={label} className="text-center block mb-2">
+                  {label}
+                </Label>
+                {tooltip && (
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 20 20"
+                    fill="currentColor"
+                    className="w-5 h-5 text-gray-500 cursor-pointer"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M10 2c-2.236 0-4.43.18-6.57.524C1.993 2.755 1 4.014 1 5.426v5.148c0 1.413.993 2.67 2.43 2.902.848.137 1.705.248 2.57.331v3.443a.75.75 0 0 0 1.28.53l3.58-3.579a.78.78 0 0 1 .527-.224 41.202 41.202 0 0 0 5.183-.5c1.437-.232 2.43-1.49 2.43-2.903V5.426c0-1.413-.993-2.67-2.43-2.902A41.289 41.289 0 0 0 10 2Zm0 7a1 1 0 1 0 0-2 1 1 0 0 0 0 2ZM8 8a1 1 0 1 1-2 0 1 1 0 0 1 2 0Zm5 1a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                )}
+              </div>
+            </TooltipTrigger>
+            {tooltip && (
+              <TooltipContent side="right" align="center">
+                <p>{tooltip}</p>
+              </TooltipContent>
+            )}
+          </Tooltip>
+        </TooltipProvider>
+
         <div className="flex items-center space-x-4">
           {options ? (
             <select
@@ -508,7 +550,6 @@ const Home = () => {
             </>
           )}
         </div>
-        <p className="text-sm text-gray-500 mt-1">{tooltip}</p>
       </div>
     );
   };
@@ -526,11 +567,15 @@ const Home = () => {
           </div>
           <div>
             <p className="font-medium">Payment Amount</p>
-            <p>{formatCurrency(parseFloat(paymentAmount))}</p>
+            <p>{formatCurrency(parseFloat(result.payment_amount))}</p> {/* Regular payment amount */}
+          </div>
+          <div>
+            <p className="font-medium">Additional Principal</p>
+            <p>{formatCurrency(parseFloat(result.additional_principal))}</p> {/* Additional principal */}
           </div>
           <div>
             <p className="font-medium">Total Payment per Period</p>
-            <p>{formatCurrency(parseFloat(paymentAmount) + parseFloat(additionalPrincipal))}</p>
+            <p>{formatCurrency(parseFloat(result.payment_amount) + parseFloat(result.additional_principal))}</p> {/* Total payment */}
           </div>
           {creditInsurance && (
             <>
@@ -615,7 +660,7 @@ const Home = () => {
                 {creditInsurance && <TableCell>{formatCurrency(payment.insurance_paid)}</TableCell>}
                 <TableCell>{formatCurrency(payment.additional_principal)}</TableCell>
                 <TableCell>{formatCurrency(payment.ending_balance)}</TableCell>
-                {isAdjustableRate && <TableHead>{payment.interest_rate.toFixed(2)}%</TableHead>}
+                {isAdjustableRate && <TableCell>{payment.interest_rate.toFixed(2)}%</TableCell>}
               </TableRow>
             ))}
           </TableBody>
@@ -703,6 +748,7 @@ const Home = () => {
 
   const renderAdjustableRateFields = () => (
     <div className="space-y-6">
+      {/* Checkbox for Adjustable Rate Loan */}
       <div className="flex items-center space-x-2">
         <Checkbox
           id="isAdjustableRate"
@@ -711,6 +757,7 @@ const Home = () => {
             setIsAdjustableRate(checked);
             // Reset fields when toggling
             if (!checked) {
+              setInitialInterestRate('');
               setInitialIndexRate('');
               setMargin('');
               setMaxRateChange('');
@@ -728,10 +775,72 @@ const Home = () => {
       </div>
       {isAdjustableRate && (
         <>
-          {renderInputField('Initial Index Rate (%)', initialIndexRate, setInitialIndexRate, 'Enter the initial index rate', 'number', null, 0, 50, 0.1)}
-          {renderInputField('Margin (%)', margin, setMargin, 'Enter the margin added to the index rate', 'number', null, 0, 10, 0.1)}
-          {renderInputField('Max Rate Change (%)', maxRateChange, setMaxRateChange, 'Enter the maximum rate change per adjustment period', 'number', null, 0, 10, 0.1)}
-          {renderInputField('Max Interest Rate (%)', maxInterestRate, setMaxInterestRate, 'Enter the maximum interest rate over the life of the loan', 'number', null, 0, 50, 0.1)}
+          {renderInputField(
+            'Initial Interest Rate (%)',
+            initialInterestRate,
+            setInitialInterestRate,
+            'Enter the initial interest rate for the loan (e.g., 3.5)',
+            'number',
+            null,
+            0,
+            50,
+            0.1
+          )}
+          {renderInputField(
+            'Initial Index Rate (%)',
+            initialIndexRate,
+            setInitialIndexRate,
+            'Enter the initial index rate used for future adjustments (e.g., 2.5)',
+            'number',
+            null,
+            0,
+            100,
+            0.1
+          )}
+          {renderInputField(
+            'Minimum Interest Rate (%)',
+            minimumInterestRate,
+            setMinimumInterestRate,
+            'Enter the minimum interest rate for the loan (e.g., 0.5)',
+            'number',
+            null,
+            0,
+            50,
+            0.1
+          )}
+          {renderInputField(
+            'Margin (%)',
+            margin,
+            setMargin,
+            'Enter the margin added to the index rate for future adjustments (e.g., 1.5)',
+            'number',
+            null,
+            0,
+            10,
+            0.1
+          )}
+          {renderInputField(
+            'Max Rate Change (%)',
+            maxRateChange,
+            setMaxRateChange,
+            'Enter the maximum rate change per adjustment period (e.g., 2.0)',
+            'number',
+            null,
+            0,
+            10,
+            0.1
+          )}
+          {renderInputField(
+            'Max Interest Rate (%)',
+            maxInterestRate,
+            setMaxInterestRate,
+            'Enter the maximum interest rate over the life of the loan (e.g., 10.0)',
+            'number',
+            null,
+            0,
+            50,
+            0.1
+          )}
           <div className="flex items-center space-x-2">
             <Checkbox
               id="adjustPayment"
@@ -740,8 +849,28 @@ const Home = () => {
             />
             <Label htmlFor="adjustPayment">Adjust Payment Amount When Interest Rate Changes</Label>
           </div>
-          {renderInputField('Fixed Rate Period (Payments)', fixedRatePeriod, setFixedRatePeriod, 'Enter the number of payments with a fixed interest rate', 'number', null, 0, 480, 1)}
-          {renderInputField('Adjustment Frequency (Payments)', adjustmentFrequency, setAdjustmentFrequency, 'Enter the number of payments between interest rate adjustments', 'number', null, 1, 480, 1)}
+          {renderInputField(
+            'Fixed Rate Period (Payments)',
+            fixedRatePeriod,
+            setFixedRatePeriod,
+            'Enter the number of payments with a fixed interest rate before adjustments begin (e.g., 12)',
+            'number',
+            null,
+            0,
+            480,
+            1
+          )}
+          {renderInputField(
+            'Adjustment Frequency (Payments)',
+            adjustmentFrequency,
+            setAdjustmentFrequency,
+            'Enter the number of payments between interest rate adjustments (e.g., 12)',
+            'number',
+            null,
+            1,
+            480,
+            1
+          )}
 
           {/* Rate Adjustment Pattern Section */}
           <div className="space-y-4">
@@ -829,7 +958,7 @@ const Home = () => {
                       'Adjustment Type',
                       adjustmentType,
                       setAdjustmentType,
-                      'Select the type of adjustment',
+                      'Select the type of adjustment: Percentage or Fixed Amount',
                       'text',
                       ['Percentage', 'Fixed Amount']
                     )}
@@ -943,7 +1072,17 @@ const Home = () => {
                 <AccordionTrigger>Loan Input</AccordionTrigger>
                 <AccordionContent>
                   <div className="space-y-6">
-                    {renderInputField('Loan Amount', loanAmount, setLoanAmount, 'Enter the total amount you wish to borrow', 'number', null, 0, 10000000, 500)}
+                    {renderInputField(
+                      'Loan Amount',
+                      loanAmount,
+                      setLoanAmount,
+                      'Enter the total amount you wish to borrow (e.g., 20000)',
+                      'number',
+                      null,
+                      0,
+                      10000000,
+                      500
+                    )}
                     <div className="flex items-center space-x-2">
                       <Checkbox
                         id="customPaymentAmount"
@@ -958,10 +1097,42 @@ const Home = () => {
                       />
                       <Label htmlFor="customPaymentAmount">Custom Payment Amount</Label>
                     </div>
-                    {renderInputField('Payment Amount (Optional)', paymentAmount, setPaymentAmount, 'Enter your desired payment amount or leave blank to calculate it', 'number', null, 0, null, 0.01, !customPaymentAmount)}
-                    {renderInputField('Interest Rate (%)', annualInterestRate, setAnnualInterestRate, 'Enter the annual interest rate', 'number', null, 0, 50, 0.1, isAdjustableRate)}
+                    {renderInputField(
+                      'Payment Amount (Optional)',
+                      paymentAmount,
+                      setPaymentAmount,
+                      'Enter your desired payment amount or leave blank to calculate it',
+                      'number',
+                      null,
+                      0,
+                      null,
+                      0.01,
+                      !customPaymentAmount
+                    )}
+                    {renderInputField(
+                      'Interest Rate (%)',
+                      annualInterestRate,
+                      setAnnualInterestRate,
+                      'Enter the annual interest rate (e.g., 5.5)',
+                      'number',
+                      null,
+                      0,
+                      50,
+                      0.1,
+                      isAdjustableRate
+                    )}
                     {renderAdjustableRateFields()}
-                    {renderInputField('Loan Term (Payments)', loanTerm, setLoanTerm, 'Enter the loan term in number of payments', 'number', null, 1, 480, 1)}
+                    {renderInputField(
+                      'Loan Term (Payments)',
+                      loanTerm,
+                      setLoanTerm,
+                      'Enter the loan term in number of payments (e.g., 60)',
+                      'number',
+                      null,
+                      1,
+                      480,
+                      1
+                    )}
                     <div className="flex items-center space-x-2">
                       <Checkbox
                         id="useDifferentAmortTerm"
@@ -977,25 +1148,67 @@ const Home = () => {
                         Use different amortization term (e.g., for balloon payments)
                       </Label>
                     </div>
-                    {useDifferentAmortTerm && renderInputField(
-                      'Amortization Term (Payments)',
-                      amortTerm,
-                      setAmortTerm,
-                      'Enter the amortization term in number of payments',
-                      'number',
-                      null,
-                      1,
-                      480,
-                      1
+                    {useDifferentAmortTerm &&
+                      renderInputField(
+                        'Amortization Term (Payments)',
+                        amortTerm,
+                        setAmortTerm,
+                        'Enter the amortization term in number of payments (e.g., 360)',
+                        'number',
+                        null,
+                        1,
+                        480,
+                        1
+                      )}
+                    {renderInputField(
+                      'Additional Principal',
+                      additionalPrincipal,
+                      setAdditionalPrincipal,
+                      'Enter any additional principal payments per period (e.g., 100)',
+                      'number'
                     )}
-                    {renderInputField('Additional Principal', additionalPrincipal, setAdditionalPrincipal, 'Enter any additional principal payments', 'number')}
-                    {renderInputField('Payment Frequency', paymentFrequency, setPaymentFrequency, 'Select payment frequency', 'text', ['Monthly', 'Biweekly', 'Weekly'])}
-                    {renderInputField('First Due Date', firstDueDate, setFirstDueDate, 'Select first payment due date', 'date')}
-                    {renderInputField('Days Method', daysMethod, (value) => { setDaysMethod(value); }, 'Select days method', 'text', ['Actual', '30 Day Month'])}
-                    {renderInputField('Year Basis', yearBasis, (value) => { setYearBasis(value); }, 'Select the year basis for interest calculations', 'text', ['360', '365', '366'])}
+                    {renderInputField(
+                      'Payment Frequency',
+                      paymentFrequency,
+                      setPaymentFrequency,
+                      'Select payment frequency',
+                      'text',
+                      ['Monthly', 'Biweekly', 'Weekly']
+                    )}
+                    {renderInputField(
+                      'First Due Date',
+                      firstDueDate,
+                      setFirstDueDate,
+                      'Select first payment due date',
+                      'date'
+                    )}
+                    {renderInputField(
+                      'Days Method',
+                      daysMethod,
+                      (value) => {
+                        setDaysMethod(value);
+                      },
+                      'Select days method for interest calculation',
+                      'text',
+                      ['Actual', '30 Day Month']
+                    )}
+                    {renderInputField(
+                      'Year Basis',
+                      yearBasis,
+                      (value) => {
+                        setYearBasis(value);
+                      },
+                      'Select the year basis for interest calculations',
+                      'text',
+                      ['360', '365', '366']
+                    )}
 
                     <div className="flex items-center justify-center space-x-2">
-                      <Checkbox id="creditInsurance" checked={creditInsurance} onCheckedChange={handleCheckboxChange(setCreditInsurance)} />
+                      <Checkbox
+                        id="creditInsurance"
+                        checked={creditInsurance}
+                        onCheckedChange={handleCheckboxChange(setCreditInsurance)}
+                      />
                       <Label htmlFor="creditInsurance">Include Credit Insurance</Label>
                     </div>
                   </div>
@@ -1004,7 +1217,10 @@ const Home = () => {
             </Accordion>
 
             <div className="flex justify-center">
-              <Button onClick={handleCalculate} className="w-full max-w-xs bg-gradient-to-r from-primary to-primary-dark text-white font-semibold py-3 px-6 rounded-md shadow-md hover:shadow-lg transition duration-300 ease-in-out transform hover:-translate-y-1">
+              <Button
+                onClick={handleCalculate}
+                className="w-full max-w-xs bg-gradient-to-r from-primary to-primary-dark text-white font-semibold py-3 px-6 rounded-md shadow-md hover:shadow-lg transition duration-300 ease-in-out transform hover:-translate-y-1"
+              >
                 Calculate
               </Button>
             </div>
@@ -1017,8 +1233,14 @@ const Home = () => {
             )}
 
             {progress > 0 && progress < 100 && (
-              <Progress value={progress} className="w-full h-2 bg-secondary/20 rounded-full overflow-hidden">
-                <div className="h-full bg-gradient-to-r from-primary to-primary-dark" style={{ width: `${progress}%` }} />
+              <Progress
+                value={progress}
+                className="w-full h-2 bg-secondary/20 rounded-full overflow-hidden"
+              >
+                <div
+                  className="h-full bg-gradient-to-r from-primary to-primary-dark"
+                  style={{ width: `${progress}%` }}
+                />
               </Progress>
             )}
 
@@ -1033,23 +1255,17 @@ const Home = () => {
                   <Accordion type="multiple" className="w-full">
                     <AccordionItem value="loan-summary">
                       <AccordionTrigger>Loan Summary</AccordionTrigger>
-                      <AccordionContent>
-                        {renderLoanSummary()}
-                      </AccordionContent>
+                      <AccordionContent>{renderLoanSummary()}</AccordionContent>
                     </AccordionItem>
 
                     <AccordionItem value="payment-breakdown">
                       <AccordionTrigger>Payment Breakdown Chart</AccordionTrigger>
-                      <AccordionContent>
-                        {renderPaymentBreakdownChart()}
-                      </AccordionContent>
+                      <AccordionContent>{renderPaymentBreakdownChart()}</AccordionContent>
                     </AccordionItem>
 
                     <AccordionItem value="amortization-schedule">
                       <AccordionTrigger>Amortization Schedule</AccordionTrigger>
-                      <AccordionContent>
-                        {renderAmortizationSchedule()}
-                      </AccordionContent>
+                      <AccordionContent>{renderAmortizationSchedule()}</AccordionContent>
                     </AccordionItem>
                   </Accordion>
                 </div>
