@@ -1,5 +1,4 @@
 version: '3.8'
-
 services:
   frontend:
     build:
@@ -8,7 +7,9 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=http://backend:9000  # This is correct for Docker networking
+      - NEXT_PUBLIC_API_URL=http://backend:9000
+    networks:
+      - app-network
 
   backend:
     build:
@@ -16,3 +17,9 @@ services:
       dockerfile: Dockerfile
     ports:
       - "9000:9000"
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
