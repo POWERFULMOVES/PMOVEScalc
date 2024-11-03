@@ -17,7 +17,7 @@ getcontext().prec = 28
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Adjust as needed for security
+    allow_origins=["https://pmovescalc.cataclysmstudios.net"],  # Adjust as needed for security
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
