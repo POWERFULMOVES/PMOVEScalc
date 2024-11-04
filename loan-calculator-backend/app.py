@@ -16,38 +16,12 @@ from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
 
-# Get allowed origins from environment variables or use defaults
-ALLOWED_ORIGINS = [
-    "http://localhost:3000",  # Development
-    "http://127.0.0.1:3000",  # Alternative local development
-    "https://pmovescalc.cataclysmstudios.net",  # Production frontend
-]
-
-# Add production domain if environment variable is set
-PRODUCTION_DOMAIN = os.getenv("PRODUCTION_DOMAIN")
-if PRODUCTION_DOMAIN:
-    ALLOWED_ORIGINS.append(f"https://{PRODUCTION_DOMAIN}")
-
-# Print the allowed origins for debugging
-print("Allowed Origins:", ALLOWED_ORIGINS)
-
-# Update CORS middleware with more secure configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
+    allow_origins=["https://pmovescalc.cataclysmstudios.net"],
     allow_credentials=True,
     allow_methods=["GET", "POST"],
-    allow_headers=[
-        "Content-Type",
-        "Authorization",
-        "Accept",
-        "Origin",
-        "X-Requested-With",
-    ],
-    expose_headers=[
-        "Content-Disposition",  # Needed for file downloads
-    ],
-    max_age=3600,  # Cache preflight requests for 1 hour
+    allow_headers=["*"],
 )
 
 # Set decimal precision higher to ensure accurate calculations

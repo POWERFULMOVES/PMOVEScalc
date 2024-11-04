@@ -7,8 +7,6 @@ services:
       dockerfile: Dockerfile
     ports:
       - '3000:3000'
-    environment:
-      NEXT_PUBLIC_API_URL: 'https://pmovescalcapi.cataclysmstudios.net'
     depends_on:
       - backend
 
@@ -19,5 +17,4 @@ services:
     ports:
       - '9000:9000'
     environment:
-      ALLOWED_ORIGINS: 'https://pmovescalc.cataclysmstudios.net,http://localhost:3000,http://127.0.0.1:3000'
-      PRODUCTION_DOMAIN: 'pmovescalc.cataclysmstudios.net'
+      ALLOWED_ORIGINS: 'https://pmovescalc.cataclysmstudios.net'
