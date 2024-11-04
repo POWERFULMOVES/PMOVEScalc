@@ -8,11 +8,24 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=http://backend:8000  # This is correct for Docker networking
+      - NEXT_PUBLIC_API_URL=http://localhost:9000  # Use localhost for external access
+    depends_on:
+      - backend
+    networks:
+      - loan-calculator-network
 
   backend:
     build:
       context: ./loan-calculator-backend
       dockerfile: Dockerfile
     ports:
-      - "8000:8000"
+      - "9000:9000"
+    environment:
+      - PRODUCTION_DOMAIN=${PRODUCTION_DOMAIN:-your-production-domain.com}
+    command: uvicorn app:app --host 0.0.0.0 --port 9000
+    networks:
+      - loan-calculator-network
+
+networks:
+  loan-calculator-network:
+    driver: bridge

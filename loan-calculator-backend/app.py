@@ -8,20 +8,42 @@ import io
 from fastapi.responses import StreamingResponse
 from typing import Optional, List
 import xlsxwriter
+import os
 
 app = FastAPI()
 
-# Set decimal precision higher to ensure accurate calculations
-getcontext().prec = 28
+# Get allowed origins from environment variables or use defaults
+ALLOWED_ORIGINS = [
+    "http://localhost:3000",  # Development
+    "http://127.0.0.1:3000",  # Alternative local development
+]
 
-# Add CORS middleware
+# Add production domain if environment variable is set
+PRODUCTION_DOMAIN = os.getenv("PRODUCTION_DOMAIN")
+if PRODUCTION_DOMAIN:
+    ALLOWED_ORIGINS.append(f"https://{PRODUCTION_DOMAIN}")
+
+# Update CORS middleware with more secure configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Adjust as needed for security
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST"],
+    allow_headers=[
+        "Content-Type",
+        "Authorization",
+        "Accept",
+        "Origin",
+        "X-Requested-With",
+    ],
+    expose_headers=[
+        "Content-Disposition",  # Needed for file downloads
+    ],
+    max_age=3600,  # Cache preflight requests for 1 hour
 )
+
+# Set decimal precision higher to ensure accurate calculations
+getcontext().prec = 28
 
 class RateAdjustment(BaseModel):
     effective_date: date = Field(..., description="Date when the index rate adjustment takes effect")
@@ -608,3 +630,17 @@ async def export_excel(data: dict):
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": "attachment; filename=Loan_Calculation.xlsx"}
     )
+
+# Add a health check endpoint
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy"}
+
+# Add API version endpoint
+@app.get("/version")
+async def get_version():
+    return {"version": "1.0.0"}
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=9000)

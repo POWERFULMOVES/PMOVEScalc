@@ -20,6 +20,7 @@ import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 import html2canvas from 'html2canvas';
 import ErrorBoundary from '@/components/ErrorBoundary';
+import { getEndpointUrl } from '@/config/api';
 // import { InformationCircleIcon } from '@heroicons/react/solid';
 // Optional: Uncomment the next line if you decide to use seedrandom for reproducibility
 // import seedrandom from 'seedrandom';
@@ -224,7 +225,7 @@ const Home = () => {
 
   const handleSaveAsExcel = async () => {
     try {
-      const response = await axios.post('http://localhost:8000/export-excel', result, {
+      const response = await axios.post(getEndpointUrl('/export-excel'), result, {
         responseType: 'blob',
       });
       saveAs(new Blob([response.data]), 'Loan_Calculation.xlsx');
@@ -299,7 +300,7 @@ const Home = () => {
     try {
       setProgress(50);
       console.log('Sending data:', data);
-      const response = await axios.post('http://localhost:8000/calculate', data);
+      const response = await axios.post(getEndpointUrl('/calculate'), data);
       console.log('Received response:', response.data);
       setResult(response.data);
 
