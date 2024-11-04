@@ -11,8 +11,6 @@ services:
       NEXT_PUBLIC_API_URL: 'https://pmovescalcapi.cataclysmstudios.net'
     depends_on:
       - backend
-    networks:
-      - loan-calculator-network
 
   backend:
     build:
@@ -23,9 +21,3 @@ services:
     environment:
       ALLOWED_ORIGINS: 'https://pmovescalc.cataclysmstudios.net,http://localhost:3000,http://127.0.0.1:3000'
       PRODUCTION_DOMAIN: 'pmovescalc.cataclysmstudios.net'
-    networks:
-      - loan-calculator-network
-
-networks:
-  loan-calculator-network:
-    driver: bridge
