@@ -44,11 +44,13 @@ services:
     ports:
       - '9000:9000'
     environment:
-      ALLOWED_ORIGINS: 'https://pmovescalc.cataclysmstudios.net'
+      ALLOWED_ORIGINS: 'https://pmovescalc.cataclysmstudios.net,http://localhost:3000,http://127.0.0.1:3000'
+      PRODUCTION_DOMAIN: 'pmovescalc.cataclysmstudios.net'
       COOLIFY_BRANCH: '"main-var2"'
       COOLIFY_CONTAINER_NAME: '"backend-ss8ksk4o04sw8ggs4ko4kws0-140807750155"'
       COOLIFY_URL: 'https://pmovescalcapi.cataclysmstudios.net'
       COOLIFY_FQDN: pmovescalcapi.cataclysmstudios.net
+      PORT: '9000'
     networks:
       - loan-calculator-network
       - ss8ksk4o04sw8ggs4ko4kws0
@@ -62,11 +64,15 @@ services:
       - traefik.enable=true
       - traefik.http.middlewares.gzip.compress=true
       - traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https
+      - traefik.http.middlewares.cors.headers.accesscontrolallowmethods=GET,POST
+      - traefik.http.middlewares.cors.headers.accesscontrolalloworiginlist=https://pmovescalc.cataclysmstudios.net
+      - traefik.http.middlewares.cors.headers.accesscontrolmaxage=3600
+      - traefik.http.middlewares.cors.headers.accesscontrolallowcredentials=true
       - traefik.http.routers.http-0-ss8ksk4o04sw8ggs4ko4kws0-backend.entryPoints=http
-      - traefik.http.routers.http-0-ss8ksk4o04sw8ggs4ko4kws0-backend.middlewares=redirect-to-https
+      - traefik.http.routers.http-0-ss8ksk4o04sw8ggs4ko4kws0-backend.middlewares=redirect-to-https,cors
       - 'traefik.http.routers.http-0-ss8ksk4o04sw8ggs4ko4kws0-backend.rule=Host(`pmovescalcapi.cataclysmstudios.net`) && PathPrefix(`/`)'
       - traefik.http.routers.https-0-ss8ksk4o04sw8ggs4ko4kws0-backend.entryPoints=https
-      - traefik.http.routers.https-0-ss8ksk4o04sw8ggs4ko4kws0-backend.middlewares=gzip
+      - traefik.http.routers.https-0-ss8ksk4o04sw8ggs4ko4kws0-backend.middlewares=gzip,cors
       - 'traefik.http.routers.https-0-ss8ksk4o04sw8ggs4ko4kws0-backend.rule=Host(`pmovescalcapi.cataclysmstudios.net`) && PathPrefix(`/`)'
       - traefik.http.routers.https-0-ss8ksk4o04sw8ggs4ko4kws0-backend.tls.certresolver=letsencrypt
       - traefik.http.routers.https-0-ss8ksk4o04sw8ggs4ko4kws0-backend.tls=true

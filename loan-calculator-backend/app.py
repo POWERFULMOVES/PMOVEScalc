@@ -10,18 +10,26 @@ from typing import Optional, List
 import xlsxwriter
 import os
 
+import os
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
 app = FastAPI()
 
 # Get allowed origins from environment variables or use defaults
 ALLOWED_ORIGINS = [
     "http://localhost:3000",  # Development
     "http://127.0.0.1:3000",  # Alternative local development
+    "https://pmovescalc.cataclysmstudios.net",  # Production frontend
 ]
 
 # Add production domain if environment variable is set
 PRODUCTION_DOMAIN = os.getenv("PRODUCTION_DOMAIN")
 if PRODUCTION_DOMAIN:
     ALLOWED_ORIGINS.append(f"https://{PRODUCTION_DOMAIN}")
+
+# Print the allowed origins for debugging
+print("Allowed Origins:", ALLOWED_ORIGINS)
 
 # Update CORS middleware with more secure configuration
 app.add_middleware(
