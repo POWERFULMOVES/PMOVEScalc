@@ -6,25 +6,59 @@ services:
       context: ./loan-calculator-next
       dockerfile: Dockerfile
     ports:
-      - "3000:3000"
+      - '3000:3000'
     environment:
-      - NEXT_PUBLIC_API_URL=http://backend:9000
+      NEXT_PUBLIC_API_URL: 'https://pmovescalcapi.cataclysmstudios.net'  # Updated backend URL
+      COOLIFY_BRANCH: '"main-var2"'
+      COOLIFY_CONTAINER_NAME: '"frontend-ss8ksk4o04sw8ggs4ko4kws0-140807748640"'
+      COOLIFY_URL: 'https://pmovescalc.cataclysmstudios.net'
+      COOLIFY_FQDN: pmovescalc.cataclysmstudios.net
     depends_on:
       - backend
     networks:
       - loan-calculator-network
+      - ss8ksk4o04sw8ggs4ko4kws0
+    restart: unless-stopped
+    labels:
+      - coolify.managed=true
+      # ... rest of your existing frontend labels ...
 
   backend:
     build:
       context: ./loan-calculator-backend
       dockerfile: Dockerfile
     ports:
-      - "9000:9000"
+      - '9000:9000'
     environment:
-      - ALLOWED_ORIGINS=http://frontend:3000,http://localhost:3000,https://pmovescalc.cataclysmstudios.net
+      ALLOWED_ORIGINS: 'https://pmovescalc.cataclysmstudios.net'  # Frontend domain only
+      COOLIFY_BRANCH: '"main-var2"'
+      COOLIFY_CONTAINER_NAME: '"backend-ss8ksk4o04sw8ggs4ko4kws0-140807750155"'
     networks:
       - loan-calculator-network
+      - ss8ksk4o04sw8ggs4ko4kws0
+    restart: unless-stopped
+    labels:
+      - coolify.managed=true
+      - coolify.version=4.0.0-beta.360
+      - coolify.applicationId=7
+      - coolify.type=application
+      - coolify.name=backend-ss8ksk4o04sw8ggs4ko4kws0-140807750155
+      - traefik.enable=true
+      - traefik.http.middlewares.gzip.compress=true
+      - traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https
+      - traefik.http.routers.http-0-ss8ksk4o04sw8ggs4ko4kws0-backend.entryPoints=http
+      - traefik.http.routers.http-0-ss8ksk4o04sw8ggs4ko4kws0-backend.middlewares=redirect-to-https
+      - 'traefik.http.routers.http-0-ss8ksk4o04sw8ggs4ko4kws0-backend.rule=Host(`pmovescalcapi.cataclysmstudios.net`)'
+      - traefik.http.routers.https-0-ss8ksk4o04sw8ggs4ko4kws0-backend.entryPoints=https
+      - traefik.http.routers.https-0-ss8ksk4o04sw8ggs4ko4kws0-backend.middlewares=gzip
+      - 'traefik.http.routers.https-0-ss8ksk4o04sw8ggs4ko4kws0-backend.rule=Host(`pmovescalcapi.cataclysmstudios.net`)'
+      - traefik.http.routers.https-0-ss8ksk4o04sw8ggs4ko4kws0-backend.tls.certresolver=letsencrypt
+      - traefik.http.routers.https-0-ss8ksk4o04sw8ggs4ko4kws0-backend.tls=true
+      - traefik.http.services.backend.loadbalancer.server.port=9000
 
 networks:
   loan-calculator-network:
     driver: bridge
+  ss8ksk4o04sw8ggs4ko4kws0:
+    external: true
+    name: ss8ksk4o04sw8ggs4ko4kws0
