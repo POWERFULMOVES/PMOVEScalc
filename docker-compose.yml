@@ -8,7 +8,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:9000  # Use localhost for external access
+      - NEXT_PUBLIC_API_URL=http://backend:9000
     depends_on:
       - backend
     networks:
@@ -21,8 +21,7 @@ services:
     ports:
       - "9000:9000"
     environment:
-      - PRODUCTION_DOMAIN=${PRODUCTION_DOMAIN:-your-production-domain.com}
-    
+      - ALLOWED_ORIGINS=http://frontend:3000,http://localhost:3000,https://pmovescalc.cataclysmstudios.net
     networks:
       - loan-calculator-network
 
